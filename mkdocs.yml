@@ -17,6 +17,7 @@ nav:
       - The developer environment: common/dev-environment.md
       - Reproducibility & the scripts: common/reproducibility.md
       - The troubleshooting mindset: common/troubleshooting-mindset.md
+      - Supply-chain security (June 2026 AUR compromise): common/aur-supply-chain-2026-06.md
       - fastfetch with a custom image/GIF/video: common/fastfetch-logo.md
       - iPad/Android tablet as a drawing pad (Weylus): common/weylus-tablet.md
       - Virtual machines (QEMU/KVM + virt-manager): common/virtual-machines.md
