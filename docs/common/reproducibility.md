@@ -21,7 +21,7 @@ remove the system, and they are the *source of truth* — not the live files.
 | Script | Job | Sudo? |
 |---|---|---|
 | `setup-home.sh` | Writes the home-directory half: Hyprland overrides, `~/.local/bin` helper scripts, fish config, the Sweet GTK icon theme (nautilus), the DualSense WirePlumber rule, git defaults | No |
-| `install.sh` | The system half: packages (repo + AUR), driver-matched CUDA, the DualSense audio pin + udev rule, groups, the fish login shell | Yes (calls `sudo` itself) |
+| `install.sh` | The system half: packages (official repos / Flatpak / upstream releases — **no AUR by default**), driver-matched CUDA, the DualSense audio pin + udev rule, groups, the fish login shell | Yes (calls `sudo` itself) |
 | `uninstall.sh` | The clean counterpart: remove a component's packages **and** its data, configs, and launchers, and report the space reclaimed | Yes |
 
 ## Idempotency — safe to run again
@@ -53,8 +53,12 @@ bash uninstall.sh docker isaac   # remove components cleanly
 ```
 
 The same `--dry-run`, `--yes`, and `all` flags work everywhere. `install.sh`
-always runs its prerequisites first (database refresh, git/`gh`/an AUR helper),
-then the components you chose, in a fixed dependency-safe order.
+always runs its prerequisites first (database refresh, git/`gh`), then the
+components you chose, in a fixed dependency-safe order. It also takes
+`--allow-aur`: by default (since the [June 2026 AUR compromise](aur-supply-chain-2026-06.md))
+it **builds nothing from the AUR** and bootstraps no AUR helper — using official
+repos / Flatpak / upstream releases / Miniforge instead. `--allow-aur` opts in to
+the few AUR-only items, showing each PKGBUILD for review.
 
 ```mermaid
 flowchart LR

@@ -55,11 +55,13 @@ binary) and similarly stale.
 
 **[`electronstudio/WeylusCommunityEdition`](https://github.com/electronstudio/WeylusCommunityEdition)**
 is the community fork that's actively maintained — fresh release in
-2026, Wayland portal support, updated GStreamer pipeline. The AUR
-package `weylus-community-bin` ships its prebuilt Linux tarball, so we
-sidestep the Rust build path entirely. `install.sh tablet` uses that
-package; it `conflicts` with the legacy variants so the AUR helper does
-the swap cleanly if you already had one.
+2026, Wayland portal support, updated GStreamer pipeline. It publishes a
+**prebuilt Linux binary** (`weylus_linux.tar.gz`) on its GitHub
+Releases, so we sidestep the Rust build path entirely. `install.sh
+tablet` downloads that release binary straight to `/usr/local/bin/weylus`
+— **no AUR** (part of the repo's [no-AUR policy](aur-supply-chain-2026-06.md)).
+`uninstall.sh tablet` removes that binary (and sweeps any legacy AUR
+`weylus-*` package a box might still carry).
 
 ---
 

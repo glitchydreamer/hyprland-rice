@@ -55,11 +55,14 @@ plain Arch box).
 
 ## paru, not yay
 
-CachyOS ships **`paru`** as the AUR helper. The scripts here detect `paru` first,
-then `yay`, and bootstrap `yay-bin` only on a truly bare install — so on CachyOS
-the AUR steps just use `paru`. Everything AUR-related (claude-desktop, brave,
-sweet-cursors, candy-icons, weylus-community-bin, anaconda) is identical to the
-Arch build.
+CachyOS ships **`paru`** as the AUR helper. But after the June 2026 AUR compromise
+the scripts **build nothing from the AUR by default** — `paru` is only invoked when
+you pass `install.sh --allow-aur`, and even then only for the handful of items with
+no trustworthy non-AUR source (Sweet cursors, `claude-desktop`, a driver-pinned
+CUDA). Browsers come from Flatpak, conda from Miniforge, icons from a git clone, and
+weylus from its GitHub release — see the [no-AUR policy](../common/aur-supply-chain-2026-06.md).
+This is identical to the Arch build (full parity); CachyOS just never needs a helper
+bootstrap because `paru` is already in its official repo.
 
 ## The `downgrade` tool
 

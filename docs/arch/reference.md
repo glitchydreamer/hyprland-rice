@@ -563,8 +563,9 @@ fastfetch-logo --none
 ### 6.12 iPad / Android tablet as graphic tablet & touchscreen (Weylus)
 
 Installed via `install.sh tablet`. Uses the maintained community fork
-([electronstudio/WeylusCommunityEdition](https://github.com/electronstudio/WeylusCommunityEdition))
-shipped as a prebuilt AUR binary — `weylus-community-bin`. Upstream
+([electronstudio/WeylusCommunityEdition](https://github.com/electronstudio/WeylusCommunityEdition)),
+installed from its **official GitHub release binary** (`weylus_linux.tar.gz` →
+`/usr/local/bin/weylus`) — **no AUR** (the no-AUR policy). Upstream
 H-M-H/Weylus has been unmaintained since 2022 and its `weylus` source-build
 PKGBUILD **no longer compiles** on current rustc (the transitive
 `syntex_pos 0.42` crate uses `RustcEncodable`/`Decodable` derive macros
@@ -572,7 +573,7 @@ modern rustc removed).
 
 | Step | Command / file |
 |---|---|
-| Install | `bash install.sh tablet` — pulls `weylus-community-bin` + `gst-plugin-pipewire`, sets up uinput |
+| Install | `bash install.sh tablet` — fetches the latest Weylus CE release binary → `/usr/local/bin`, pulls `gst-plugin-pipewire`, sets up uinput |
 | Same network as your tablet | Desktop and iPad/Android on the same LAN (or hotspot). Weylus serves a webpage, the tablet visits it. |
 | Launch | `weylus` (GUI) — set an access code, leave defaults, press **Start** |
 | On the tablet | Open the printed URL (`http://<desktop-ip>:1701`) in Safari / Chrome / Firefox. Enter the access code. |

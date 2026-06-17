@@ -5,22 +5,29 @@
 # the mirror image of uninstall.sh.
 #
 # Run setup-home.sh FIRST (it writes the home-dir configs, no sudo). THIS script
-# does the sudo-gated parts: packages (repo + AUR), driver-matched CUDA + cuDNN,
-# CUDA PATH, the DualSense audio fix, group membership, and the fish login shell.
+# does the sudo-gated parts: packages (official repos / Flathub / upstream
+# releases — NO AUR by default), driver-matched CUDA + cuDNN, CUDA PATH, the
+# DualSense audio fix, group membership, and the fish login shell.
 #
 #     bash ~/Documents/hyprland-rice/arch/setup-home.sh        # 1. home configs
 #     bash ~/Documents/hyprland-rice/arch/install.sh           # 2. system, menu
 #     bash ~/Documents/hyprland-rice/arch/install.sh cuda audio # just these
 #     bash ~/Documents/hyprland-rice/arch/install.sh --yes all  # everything
 #     bash ~/Documents/hyprland-rice/arch/install.sh --dry-run all  # preview
+#     bash ~/Documents/hyprland-rice/arch/install.sh --allow-aur apps  # opt in to AUR
 #
 # Flags:
-#   --dry-run   show what WOULD be installed/changed; touch nothing.
-#   --yes / -y  skip the confirmation prompt.
-#   all         select every component.
+#   --dry-run    show what WOULD be installed/changed; touch nothing.
+#   --yes / -y   skip the confirmation prompt.
+#   --allow-aur  opt in to AUR builds for the few AUR-only items (Sweet cursors,
+#                Claude Desktop, a driver-pinned CUDA). OFF by default — policy
+#                after the June 2026 AUR supply-chain compromise. With it on, the
+#                helper shows each PKGBUILD for review before building.
+#   all          select every component.
 #
-# Prereqs (DB refresh, git/base-devel/gh/ssh, an AUR helper) ALWAYS run first —
-# they're needed by the other components and to push afterward.
+# Prereqs (DB refresh, git/base-devel/gh/ssh) ALWAYS run first — they're needed by
+# the other components and to push afterward. No AUR helper is bootstrapped unless
+# --allow-aur is given.
 #
 # Run as your normal user (it calls sudo itself where needed).
 # Safe to re-run: every step uses --needed / is idempotent.
@@ -34,9 +41,16 @@ fi
 
 USER_NAME="$(id -un)"
 FAILED=()
-HELPER=""   # AUR helper, resolved by ensure_aur_helper()
+HELPER=""   # AUR helper, resolved by ensure_aur_helper() — only when --allow-aur
 DRY_RUN=0
 ASSUME_YES=0
+# Policy (after the June 2026 AUR supply-chain compromise): NEVER build from the
+# AUR by default. Everything that has an official repo / Flatpak / upstream-release
+# / git source is installed that way. The few genuinely AUR-only items (Sweet
+# cursors, Claude Desktop, a driver-pinned older CUDA) are skipped unless you opt
+# in with --allow-aur, which also pauses on each PKGBUILD for review.
+ALLOW_AUR=0
+AUR_SKIPPED=()   # AUR installs skipped because --allow-aur wasn't given
 
 say() { echo -e "$*"; }
 hr()  { echo "------------------------------------------------------------"; }
@@ -49,8 +63,10 @@ pac() {  # install a group; record failure but keep going
 }
 
 # Make sure an AUR helper exists. A truly fresh minimal install has neither
-# paru nor yay; bootstrap yay from the AUR (clone + makepkg) if needed.
+# paru nor yay; bootstrap yay from the AUR (clone + makepkg) if needed. Only ever
+# called when --allow-aur is given — the default no-AUR path never bootstraps one.
 ensure_aur_helper() {
+    [ "$ALLOW_AUR" -eq 1 ] || return 0   # no-AUR policy: never bootstrap a helper
     if command -v paru >/dev/null; then HELPER=paru; return; fi
     if command -v yay  >/dev/null; then HELPER=yay;  return; fi
     if [ "$DRY_RUN" -eq 1 ]; then say "    [dry-run] bootstrap yay from the AUR"; HELPER="yay"; return; fi
@@ -66,9 +82,19 @@ ensure_aur_helper() {
     rm -rf "$tmp"
 }
 
-# Run an AUR install through whichever helper we have.
+# Run an AUR install through whichever helper we have — but ONLY when the user
+# opted in with --allow-aur. By default this records the package as skipped (not a
+# failure) and returns nonzero so the caller moves on. When AUR IS allowed we run
+# the helper WITHOUT --noconfirm, so it shows the PKGBUILD/diff for review before
+# building (the whole point of opting in deliberately after the AUR compromise).
 aur() {
+    if [ "$ALLOW_AUR" -ne 1 ]; then
+        say "    · SKIPPED (AUR disabled by default — policy): $*"
+        say "      → re-run with --allow-aur to build it from the AUR (you'll review the PKGBUILD)."
+        AUR_SKIPPED+=("$*"); return 1
+    fi
     if [ "$DRY_RUN" -eq 1 ]; then say "    [dry-run] ${HELPER:-aur} -S --needed $*"; return 0; fi
+    [ -n "$HELPER" ] || ensure_aur_helper
     [ -n "$HELPER" ] || { FAILED+=("aur:no-helper"); return 1; }
     "$HELPER" -S --needed "$@"
 }
@@ -159,19 +185,32 @@ lock_icon_theme() {
     say "    · undo the lock (revert to caelestia default):  bash uninstall.sh icons"
 }
 
-# Install Anaconda (AUR) and wire it into the fish login shell.
-# Used for general ML/Python work. Idempotent: conda init is a no-op if the
-# managed block already exists, and we never auto-activate base.
+# Install Miniforge — conda-forge's OFFICIAL, AUR-free conda distribution — into
+# ~/miniforge3, and wire it into the fish login shell. Replaces the old AUR
+# `anaconda` package (no AUR, no root-owned /opt base). conda-forge is Miniforge's
+# default channel, so it carries no Anaconda-ToS gate — the same channel the
+# lerobot env (setup-home.sh) is built from. Idempotent: skips if conda exists,
+# conda init is a no-op when the managed block is already there, base not auto-on.
+MINIFORGE_PREFIX="$HOME/miniforge3"
 install_anaconda() {
-    if [ ! -x /opt/anaconda/bin/conda ] && ! command -v conda >/dev/null; then
-        echo -e "\n>>> Anaconda (AUR via ${HELPER:-none})"
-        aur anaconda || { FAILED+=("anaconda"); return; }
+    if [ -x "$MINIFORGE_PREFIX/bin/conda" ] || command -v conda >/dev/null; then
+        echo ">>> conda already present — skipping Miniforge install."
+    elif [ "$DRY_RUN" -eq 1 ]; then
+        say "    [dry-run] curl Miniforge3-$(uname)-$(uname -m).sh (conda-forge) → bash -b -p $MINIFORGE_PREFIX"
     else
-        echo ">>> Anaconda already present — skipping install."
+        echo -e "\n>>> Miniforge (official conda-forge installer — no AUR)"
+        local url="https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-$(uname)-$(uname -m).sh"
+        local tmp; tmp="$(mktemp -d)"
+        if curl -fL --proto '=https' -o "$tmp/miniforge.sh" "$url" \
+            && bash "$tmp/miniforge.sh" -b -p "$MINIFORGE_PREFIX"; then
+            rm -rf "$tmp"
+        else
+            FAILED+=("miniforge"); rm -rf "$tmp"; return
+        fi
     fi
     [ "$DRY_RUN" -eq 1 ] && { say "    [dry-run] conda init fish + disable auto_activate_base"; return; }
     local conda
-    conda="$(command -v conda || echo /opt/anaconda/bin/conda)"
+    conda="$(command -v conda || echo "$MINIFORGE_PREFIX/bin/conda")"
     [ -x "$conda" ] || { FAILED+=("anaconda:no-conda-bin"); return; }
     # `conda init fish` writes ~/.config/fish/conf.d/conda.fish (idempotent).
     "$conda" init fish || FAILED+=("conda init fish")
@@ -203,12 +242,110 @@ install_cuda() {
         pac cuda cuda cudnn
     else
         echo ">>> Repo cuda ($repoc) is newer than the driver supports ($maxc)."
-        echo ">>> Trying the AUR toolkit pinned to your driver: cuda-$maxc"
+        echo ">>> The driver-pinned toolkit cuda-$maxc is AUR-only (no repo build)."
         aur "cuda-$maxc" cudnn \
-            || { echo ">>> No matching AUR cuda-$maxc. Either update the NVIDIA driver"
-                 echo ">>> (sudo pacman -S nvidia/nvidia-open) then re-run, or install a"
-                 echo ">>> CUDA <= $maxc manually."; FAILED+=("cuda:driver-too-old"); }
+            || { echo ">>> cuda-$maxc not installed. Prefer: update the NVIDIA driver"
+                 echo ">>> (sudo pacman -S nvidia/nvidia-open) then re-run so the REPO"
+                 echo ">>> cuda fits — no AUR needed. Or, to build the pinned toolkit"
+                 echo ">>> from the AUR, re-run with: install.sh --allow-aur cuda."
+                 FAILED+=("cuda:driver-too-old"); }
     fi
+}
+
+# ----------------------------------------------------------------------------
+# AUR-free installers for what used to come from the AUR.
+# ----------------------------------------------------------------------------
+
+# Weylus Community Edition straight from its official GitHub Releases (no AUR).
+# Resolves the latest weylus_linux.tar.gz at runtime (so it tracks new versions),
+# extracts the `weylus` binary, and installs it to /usr/local/bin. Idempotent:
+# skips if a weylus binary is already on PATH.
+install_weylus_release() {
+    if command -v weylus >/dev/null 2>&1; then
+        say "    · weylus already installed ($(command -v weylus)) — skip."
+        say "      (to update: bash uninstall.sh tablet, then re-run this component.)"
+        return
+    fi
+    if [ "$DRY_RUN" -eq 1 ]; then
+        say "    [dry-run] fetch latest weylus_linux.tar.gz from electronstudio/WeylusCommunityEdition → /usr/local/bin/weylus"
+        return
+    fi
+    local api="https://api.github.com/repos/electronstudio/WeylusCommunityEdition/releases/latest"
+    local url; url=$(curl -fsSL "$api" 2>/dev/null \
+        | grep -oP '"browser_download_url":\s*"\K[^"]*weylus_linux\.tar\.gz' | head -1)
+    if [ -z "$url" ]; then
+        say "    !! could not resolve the Weylus Linux release asset (network/API?)."; FAILED+=("weylus:release"); return
+    fi
+    local tmp; tmp="$(mktemp -d)"
+    if curl -fL --proto '=https' -o "$tmp/weylus.tgz" "$url" && tar -xzf "$tmp/weylus.tgz" -C "$tmp"; then
+        local bin; bin=$(find "$tmp" -type f -name weylus | head -1)
+        if [ -n "$bin" ]; then
+            sudo install -Dm755 "$bin" /usr/local/bin/weylus \
+                && say "    · installed weylus → /usr/local/bin/weylus ($(basename "$url"))" \
+                || FAILED+=("weylus:install")
+        else
+            say "    !! no 'weylus' binary inside the archive."; FAILED+=("weylus:nobinary")
+        fi
+    else
+        FAILED+=("weylus:download")
+    fi
+    rm -rf "$tmp"
+}
+
+# Candy/Sweet icon themes cloned from the upstream EliverLara repos (no AUR — the
+# old AUR packages were just git checkouts of these). candy-icons is the app-icon
+# theme; Sweet-folders supplies the coloured folder variants (Sweet-Purple etc.)
+# that inherit candy-icons. Both land in /usr/share/icons (where lock_icon_theme
+# and gsettings look). Idempotent: skips if already present.
+install_sweet_icons() {
+    if [ -d /usr/share/icons/candy-icons ] && ls -d /usr/share/icons/Sweet-* >/dev/null 2>&1; then
+        say "    · candy-icons + Sweet-* folders already present — skip."
+        return
+    fi
+    if [ "$DRY_RUN" -eq 1 ]; then
+        say "    [dry-run] git clone EliverLara/candy-icons → /usr/share/icons/candy-icons"
+        say "    [dry-run] git clone EliverLara/Sweet-folders → copy Sweet-* → /usr/share/icons"
+        return
+    fi
+    command -v git >/dev/null || { FAILED+=("theme:no-git"); return; }
+    local tmp; tmp="$(mktemp -d)"
+    if git clone --depth 1 https://github.com/EliverLara/candy-icons "$tmp/candy-icons" 2>&1 | sed 's/^/      /'; then
+        sudo rm -rf /usr/share/icons/candy-icons
+        sudo cp -a "$tmp/candy-icons" /usr/share/icons/candy-icons
+        sudo rm -rf /usr/share/icons/candy-icons/.git
+    else FAILED+=("theme:candy-clone"); fi
+    if git clone --depth 1 https://github.com/EliverLara/Sweet-folders "$tmp/sweet-folders" 2>&1 | sed 's/^/      /'; then
+        local v
+        for v in "$tmp/sweet-folders"/Sweet-*; do
+            [ -d "$v" ] || continue
+            sudo rm -rf "/usr/share/icons/$(basename "$v")"
+            sudo cp -a "$v" /usr/share/icons/
+            # Make sure the folder variant inherits candy-icons for app icons (the
+            # upstream index.theme ships a placeholder Inherits line).
+            local it="/usr/share/icons/$(basename "$v")/index.theme"
+            [ -f "$it" ] && ! grep -q 'candy-icons' "$it" \
+                && sudo sed -i 's/^\(Inherits=.*\)$/\1,candy-icons/' "$it"
+        done
+    else FAILED+=("theme:folders-clone"); fi
+    rm -rf "$tmp"
+    command -v gtk-update-icon-cache >/dev/null \
+        && sudo gtk-update-icon-cache -qf /usr/share/icons/candy-icons 2>/dev/null || true
+    say "    · installed candy-icons + Sweet-* folder themes to /usr/share/icons (no AUR)."
+}
+
+# Brave + Microsoft Edge as official Flatpaks from Flathub (no AUR). Installs the
+# flatpak runtime from the repo, ensures the flathub remote, then the two apps.
+install_flatpak_browsers() {
+    pac flatpak flatpak
+    if [ "$DRY_RUN" -eq 1 ]; then
+        say "    [dry-run] flatpak remote-add --if-not-exists flathub; flatpak install flathub com.brave.Browser com.microsoft.Edge"
+        return
+    fi
+    command -v flatpak >/dev/null || { say "    · flatpak not installed — skipping browsers."; FAILED+=("flatpak:not-installed"); return; }
+    sudo flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo || FAILED+=("flathub-remote")
+    sudo flatpak install -y --noninteractive flathub com.brave.Browser com.microsoft.Edge \
+        || FAILED+=("flatpak:browsers")
+    say "    · Brave + Edge installed as Flatpaks (launch from your app menu / 'flatpak run')."
 }
 
 # ============================================================================
@@ -320,7 +457,7 @@ COMPONENTS=(
     "build|Compilers + build/debug tooling (clang, cmake, ninja, gdb, boost, eigen, ...)"
     "cuda|CUDA toolkit + cuDNN matched to your NVIDIA driver, and the CUDA PATH"
     "python|Python scientific stack (numpy/scipy/pandas/sklearn/jupyter/ruff/...)"
-    "anaconda|Anaconda (AUR) wired into fish; base not auto-activated"
+    "anaconda|Miniforge (conda-forge, official installer — no AUR) into ~/miniforge3, wired into fish; base not auto-activated"
     "node|Node toolchain (node, pnpm, yarn)"
     "editors|Neovim"
     "embedded|Embedded/serial (picocom, minicom, arduino-cli, stlink, openocd, wireshark)"
@@ -335,9 +472,9 @@ COMPONENTS=(
     "monitor|System monitoring — HWiNFO-style: psensor + hardinfo2 (GUIs), mission-center (Task Mgr equiv), nvtop, btop, lm_sensors"
     "storage|Mount Windows/other drives + Disks app + disk benchmark (ntfs-3g, exfatprogs, gnome-disk-utility, kdiskmark)"
     "remote|SSH + remote desktop: freerdp/remmina (out) + wayvnc (VNC in); sshd left OFF, toggle with the 'remote' helper"
-    "tablet|Use an iPad/Android tablet as a graphic tablet / touchscreen via Weylus Community Edition (weylus-community-bin AUR + uinput group/udev/module setup)"
-    "theme|Candy rainbow icons (AUR: candy-icons + sweet-folders) — GTK icon theme for nautilus etc."
-    "aurapps|AUR apps (sweet-cursors, brave, edge, claude-desktop)"
+    "tablet|Use an iPad/Android tablet as a graphic tablet / touchscreen via Weylus Community Edition (official GitHub release binary — no AUR) + uinput group/udev/module setup"
+    "theme|Candy rainbow icons (cloned from upstream EliverLara repos — no AUR) — GTK icon theme for nautilus etc."
+    "apps|Brave + Edge browsers via Flatpak (official Flathub, no AUR). Sweet cursors + Claude Desktop are AUR-only — skipped unless --allow-aur."
     "groups|Add your user to the serial + wireshark groups (uucp, lock, wireshark)"
     "shell|Switch your login shell to fish"
 )
@@ -676,18 +813,17 @@ do_tablet() {
     # desktop. Upstream H-M-H/Weylus (the AUR `weylus` source build) hasn't been
     # touched since 2022 and no longer compiles on current rustc — its transitive
     # `syntex_pos 0.42` uses RustcEncodable/Decodable derive macros that modern
-    # rustc removed. The maintained fork is electronstudio/WeylusCommunityEdition;
-    # `weylus-community-bin` ships its prebuilt Linux binary so we sidestep the
-    # whole Rust build path. conflicts with weylus / weylus-bin / weylus-git, so
-    # the AUR helper handles the swap if any of those were installed before.
+    # rustc removed. The maintained fork is electronstudio/WeylusCommunityEdition,
+    # which publishes a prebuilt Linux binary on its GitHub Releases — we install
+    # THAT directly (no AUR, no Rust build) via install_weylus_release() below.
     #
     # gst-plugin-pipewire is the optdepend that enables Wayland (xdg-desktop-portal
     # screencast) capture — without it, capture falls back to X11 and on Hyprland
     # you get a black frame. Installed explicitly so a clean box without the
     # 'audio' component still works. xdg-desktop-portal[-hyprland] is already part
     # of caelestia's base.
-    say "\n>>> Weylus Community Edition (AUR via ${HELPER:-none}) + screencast plugin"
-    aur weylus-community-bin || FAILED+=("aur:weylus")
+    say "\n>>> Weylus Community Edition (official GitHub release binary — no AUR) + screencast plugin"
+    install_weylus_release
     # gst-plugin-pipewire: on a clean box it's missing and we need to pull it;
     # on this DualSense-pinned box it's ALREADY at 1.6.5 and `pacman -S --needed`
     # still tries to upgrade to the (IgnorePkg'd) 1.6.6, which fails the whole
@@ -732,13 +868,12 @@ EOF
 }
 
 do_theme() {
-    say "\n>>> Candy rainbow icons (AUR via ${HELPER:-none})"
-    # candy-icons = the rainbow/gradient APP icons; sweet-folders supplies the
-    # coloured FOLDER icons that Inherit candy-icons. Both go to /usr/share/icons
-    # (pacman-tracked). These two packages are the COMPLETE, minimal set for the
-    # Sweet look — the 12 colour variants all ship inside sweet-folders-icons-git
-    # (one ~2 MiB package), so there's nothing extra to remove for disk.
-    aur candy-icons-git sweet-folders-icons-git || FAILED+=("aur:theme")
+    say "\n>>> Candy rainbow icons (cloned from upstream EliverLara repos — no AUR)"
+    # candy-icons = the rainbow/gradient APP icons; Sweet-folders supplies the
+    # coloured FOLDER variants (Sweet-Purple etc.) that Inherit candy-icons. Both
+    # land in /usr/share/icons. Cloned from upstream rather than built from the AUR
+    # (the old AUR packages were just git checkouts of these same repos).
+    install_sweet_icons
     # Persistence: lock the icon theme at the system level so an upgrade / caelestia
     # colour-scheme regeneration can't silently revert it to Papirus-Dark. Variant
     # via ICON_THEME (default Sweet-Purple) — same knob setup-home.sh nautilus uses.
@@ -746,11 +881,15 @@ do_theme() {
     say "    · also apply the per-user GTK side:  bash setup-home.sh nautilus"
 }
 
-do_aurapps() {
-    say "\n>>> AUR via ${HELPER:-(none)}"
-    aur sweet-cursors-git sweet-cursors-hyprcursor-git \
-        brave-bin microsoft-edge-stable-bin claude-desktop-bin \
-        || FAILED+=("aur:apps")
+# Browsers come from Flathub (official, no AUR). Sweet cursors + Claude Desktop
+# have no trustworthy non-AUR source, so they're routed through the gated aur()
+# helper — skipped by default, built only under --allow-aur (with PKGBUILD review).
+do_apps() {
+    install_flatpak_browsers
+    say "\n>>> AUR-only apps (Sweet cursors, Claude Desktop) — opt-in"
+    # aur() records each as skipped (no --allow-aur) or builds it after review.
+    # Never aborts the component: the cursor/hyprcursor/claude set is best-effort.
+    aur sweet-cursors-git sweet-cursors-hyprcursor-git claude-desktop-bin || true
 }
 
 do_groups() {
@@ -776,11 +915,13 @@ is_component() { local n; for n in "${ALL_NAMES[@]}"; do [ "$n" = "$1" ] && retu
 
 for arg in "$@"; do
     case "$arg" in
-        --dry-run) DRY_RUN=1 ;;
-        -y|--yes)  ASSUME_YES=1 ;;
-        all)       SELECTED=("${ALL_NAMES[@]}") ;;
+        --dry-run)   DRY_RUN=1 ;;
+        -y|--yes)    ASSUME_YES=1 ;;
+        --allow-aur) ALLOW_AUR=1 ;;
+        all)         SELECTED=("${ALL_NAMES[@]}") ;;
         -h|--help)
-            say "usage: install.sh [--dry-run] [--yes] [all | <component>...]"
+            say "usage: install.sh [--dry-run] [--yes] [--allow-aur] [all | <component>...]"
+            say "  --allow-aur  opt in to AUR builds for the few AUR-only items (off by default)"
             say "components: ${ALL_NAMES[*]}"; exit 0 ;;
         *)
             if is_component "$arg"; then SELECTED+=("$arg")
@@ -790,7 +931,8 @@ done
 
 if [ "${#SELECTED[@]}" -eq 0 ]; then
     hr; say "Interactive installer — pick what to install."
-    say "(Prereqs: DB refresh, git/base-devel/gh/ssh + an AUR helper always run first.)"
+    say "(Prereqs: DB refresh, git/base-devel/gh/ssh always run first.)"
+    say "(AUR builds are OFF by default — pass --allow-aur for the few AUR-only items.)"
     [ "$DRY_RUN" -eq 1 ] && say "(dry-run: nothing will actually be installed)"
     hr
     i=1
@@ -853,11 +995,17 @@ else
     sudo pacman -Syu --needed --noconfirm archlinux-keyring "${HDRS[@]}" \
         || FAILED+=("pacman -Syu")
 fi
-# Base tooling, done up front so `gh auth login` + `git push` work afterward and
-# the AUR components below have a helper to use.
+# Base tooling, done up front so `gh auth login` + `git push` work afterward.
 pac prereqs git base-devel github-cli openssh
-ensure_aur_helper
-say ">>> AUR helper: ${HELPER:-none}"
+if [ "$ALLOW_AUR" -eq 1 ]; then
+    ensure_aur_helper
+    say ">>> AUR helper: ${HELPER:-none}  (--allow-aur given — AUR builds are ENABLED)"
+else
+    say ">>> AUR builds DISABLED by default (policy after the June 2026 AUR compromise)."
+    say "    Everything installs from official repos / Flathub / upstream releases. The"
+    say "    few AUR-only items (Sweet cursors, Claude Desktop, a driver-pinned CUDA) are"
+    say "    skipped; pass --allow-aur to opt in for those (you'll review each PKGBUILD)."
+fi
 
 # Self-heal DKMS + boot images after the upgrade — catches the rolling-release
 # "kernel updated but its out-of-tree module didn't" class automatically, every run.
@@ -879,20 +1027,30 @@ else
     say "Completed with issues in: ${FAILED[*]}"
     say "Re-run is safe (everything uses --needed / is idempotent)."
 fi
+if [ "${#AUR_SKIPPED[@]}" -gt 0 ]; then
+    say ""
+    say "Skipped — AUR-only, and AUR is disabled by default (policy). To install these,"
+    say "re-run with --allow-aur and review each PKGBUILD before it builds:"
+    for s in "${AUR_SKIPPED[@]}"; do say "    · $s"; done
+fi
 [ "$DRY_RUN" -eq 1 ] && say "(dry-run: nothing was changed)"
 cat <<'EOF'
 
-Next (gh + an AUR helper are installed, so the only auth step is manual):
+Next (gh is installed, so the only auth step is manual):
   1. Authenticate GitHub, then push:
        gh auth login
        git push
   2. Set your git identity name (email is usually set by setup-home/your config):
        git config --global user.name "Your Name"
   3. Log out and back in (group + shell changes need a fresh session).
-  4. Verify the ghost cursor is gone and sweet-cursors renders:
+  4. Verify the ghost cursor is gone, then reload Hyprland:
        hyprctl reload
-  5. Anaconda (general ML): open a new fish shell, then
+  5. Miniforge (general ML): open a new fish shell, then
        conda activate base    # base is not auto-activated by design
+
+AUR policy: this installer builds NOTHING from the AUR by default — browsers come
+from Flathub, icons/weylus from upstream, conda from Miniforge. The only AUR-only
+items (Sweet cursors, Claude Desktop, a driver-pinned CUDA) need --allow-aur.
 
 Rolling-release self-heal: every install.sh run does a full upgrade with each
 kernel's headers in lockstep, then rebuilds DKMS modules + initramfs/UKI — so

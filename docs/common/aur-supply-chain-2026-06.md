@@ -92,6 +92,44 @@ A full reinstall is warranted only with *actual indicators of compromise* — a
 confirmed rootkit, unexplained persistence, integrity/exfil evidence. Positive
 evidence of **non-exposure** is the opposite of that.
 
+## What this rice's install scripts do about it
+
+Beyond the one-off check, the repo's `install.sh` / `uninstall.sh` (both `arch/`
+and `cachyos/`) now **build nothing from the AUR by default** — the standing
+policy is: if a thing has an official-repo / Flatpak / upstream-release / git
+source, use that; only fall back to the AUR for items with no trustworthy
+alternative, and only when you opt in.
+
+What changed:
+
+| Used to be AUR | Now (default, no AUR) |
+|---|---|
+| `anaconda` | **Miniforge** — conda-forge's official installer into `~/miniforge3` (no ToS gate, no root-owned `/opt` base) |
+| `brave-bin`, `microsoft-edge-stable-bin` | **Flatpak** from Flathub (`com.brave.Browser`, `com.microsoft.Edge`) |
+| `candy-icons-git`, `sweet-folders-icons-git` | **git clone** of the upstream EliverLara repos into `/usr/share/icons` |
+| `weylus-community-bin` | the **official GitHub release binary** (`weylus_linux.tar.gz`) → `/usr/local/bin` |
+| `fastfetch-git` | the `extra`-repo `fastfetch` (and it's a caelestia dep anyway) |
+
+What's *irreducibly* AUR-only (no trustworthy non-AUR source) is **skipped by
+default** and only built if you pass `--allow-aur`, which also makes the helper
+show each PKGBUILD for review before building:
+
+- `sweet-cursors-git` / `-hyprcursor-git` — the Sweet cursor theme has no
+  maintained upstream repo to clone from.
+- `claude-desktop-bin` — community repackage; no official Linux build.
+- a **driver-pinned older CUDA** (`cuda-<ver>`) — only when the repo `cuda` is
+  newer than the pinned 580 driver supports (preferred fix: bump the driver so
+  the repo toolkit fits — no AUR needed).
+
+```bash
+bash arch/install.sh apps              # browsers via Flatpak; AUR items skipped + reported
+bash arch/install.sh --allow-aur apps  # opt in: also build Sweet cursors + Claude Desktop (with review)
+```
+
+The caelestia shell stack (`caelestia-shell`, `quickshell-git`, …) is still AUR —
+but that's installed by **caelestia's own upstream installer**, not by these
+scripts (see the top of this page).
+
 ## Going forward — cheap habits that beat this class of attack
 
 - **Read the PKGBUILD/diff on AUR updates.** `paru` shows it before building;

@@ -108,13 +108,17 @@ paru -S brave-bin        # build/install an AUR package (same feel as pacman -S)
 yay  -S anaconda
 ```
 
-!!! note "AUR safety"
-    AUR recipes are *user-submitted*. They're build scripts that run on your
-    machine, so in principle a malicious one could do harm. In practice the
-    popular packages are heavily watched, but the habit is: glance at a
-    `PKGBUILD` before installing something obscure. A fresh Arch install has no
-    AUR helper at all — the [install script](../common/reproducibility.md) bootstraps
-    `yay` from scratch (clone + build) so the rest of the automation has one.
+!!! warning "AUR safety — and why this rice avoids it by default"
+    AUR recipes are *user-submitted* build scripts that run on your machine, so a
+    malicious one can do real harm. This stopped being hypothetical in **June 2026**,
+    when ~2000 AUR packages were poisoned with an infostealer + eBPF rootkit (see
+    [Supply-chain security](../common/aur-supply-chain-2026-06.md)). Since then this
+    repo's `install.sh` **builds nothing from the AUR by default** — it uses official
+    repos / Flatpak / upstream releases / Miniforge instead, and **does not even
+    bootstrap an AUR helper** unless you pass `--allow-aur`. The few AUR-only items
+    are then built *with the PKGBUILD shown for review*. The old habit ("glance at the
+    PKGBUILD before installing something obscure") still applies — `--allow-aur` just
+    makes that glance mandatory.
 
 ## Mental model: official repos vs AUR
 

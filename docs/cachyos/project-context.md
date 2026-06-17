@@ -18,7 +18,9 @@ scripts**; the live config lives in the home directory.
   installed as the rolling kernel.
 - **Bootloader:** **Limine**, managed by `limine-entry-tool` + `limine-mkinitcpio-hook`
   (auto-generated entries, ESP `/boot`, UKI off).
-- **AUR helper:** **paru** (ships with CachyOS).
+- **AUR helper:** **paru** (ships with CachyOS) — but the scripts build nothing from
+  the AUR by default; paru is only used when you pass `--allow-aur` (no-AUR policy,
+  see below).
 
 ## Differences from the Arch build (the only three that matter)
 
@@ -43,9 +45,17 @@ gh auth login && git push    # 3. the only step that can't be scripted
 
 All four scripts (`setup-home.sh`, `install.sh`, `uninstall.sh`,
 `nvidia-switch.sh`) are interactive + component-based and share one shape: no args
-for a numbered menu, or pass component names, `all`, `--yes`, `--dry-run`. They are
-idempotent and `FAILED=()`-tracked. This is identical to the Arch shape — see
-[Reproducibility](../common/reproducibility.md) for the model.
+for a numbered menu, or pass component names, `all`, `--yes`, `--dry-run`, and (on
+`install.sh`) `--allow-aur`. They are idempotent and `FAILED=()`-tracked. This is
+identical to the Arch shape — see [Reproducibility](../common/reproducibility.md).
+
+**No-AUR policy (since the June 2026 AUR compromise) — full parity with Arch.**
+`install.sh` builds nothing from the AUR by default: `anaconda`→**Miniforge**,
+browsers→**Flatpak**, candy/Sweet icons→**git clone**, weylus→**GitHub release
+binary**. AUR-only items (Sweet cursors, `claude-desktop`, a driver-pinned CUDA)
+are skipped + reported unless you pass `--allow-aur` (which shows each PKGBUILD for
+review). The `aurapps` component is now `apps`. See
+[Supply-chain security](../common/aur-supply-chain-2026-06.md).
 
 ### Key CachyOS-specific behaviours baked into the scripts
 
@@ -77,6 +87,13 @@ idempotent and `FAILED=()`-tracked. This is identical to the Arch shape — see
 
 ## Decisions worth remembering
 
+- **2026-06-17 — no-AUR-by-default (parity with Arch).** After the June 2026 AUR
+  compromise, `install.sh`/`uninstall.sh` were hardened to build nothing from the
+  AUR by default — `anaconda`→Miniforge, browsers→Flatpak, icons→git clone,
+  weylus→GitHub release. AUR-only items need the new `--allow-aur` flag (with
+  PKGBUILD review); no helper is bootstrapped otherwise. Note CachyOS already ships
+  `paru` in its official repo, so opting in needs no bootstrap. See
+  [Supply-chain security](../common/aur-supply-chain-2026-06.md).
 - **VRR=0 fixes the duplicate cursor here.** Discovered by accident editing
   `misc.conf`; made reproducible via the override so caelestia upgrades don't undo
   or conflict with it. The monitor lines also carry `vrr, 0`.

@@ -16,7 +16,7 @@ This page is the **CachyOS delta sheet**.
 | Distro | CachyOS (`ID_LIKE=arch`) |
 | Kernels | `linux-cachyos` (rolling) + `linux-cachyos-lts` (**booted**) |
 | Bootloader | Limine (`limine-entry-tool` + `limine-mkinitcpio-hook`, ESP `/boot`, UKI off) |
-| AUR helper | paru |
+| AUR helper | paru (only used with `install.sh --allow-aur`; no-AUR by default) |
 | GPU | NVIDIA RTX 3060, driver 610 (prebuilt module), LG ultrawide on DP-1 |
 | Audio | PipeWire (stock — no DualSense workaround) |
 

@@ -32,10 +32,21 @@ gh auth login && git push   # 3. the only step that can't be scripted
 
 **All three scripts are interactive + component-based and share one shape.** Run
 with no args for a numbered menu; or pass component names, `all`, `--yes` (skip
-the prompt), and `--dry-run` (preview only). Examples:
+the prompt), `--dry-run` (preview only), and `--allow-aur` (opt in to AUR builds —
+**off by default**, see the no-AUR policy below). Examples:
 `bash install.sh cuda audio`, `bash install.sh --dry-run all`,
 `bash uninstall.sh docker isaac ros2`. install.sh always runs its prereqs (DB
-refresh, git/base-devel/gh/ssh, an AUR helper) before the chosen components.
+refresh, git/base-devel/gh/ssh) before the chosen components — **no AUR helper is
+bootstrapped unless `--allow-aur` is given.**
+
+**No-AUR policy (since the June 2026 AUR compromise).** The scripts build nothing
+from the AUR by default: `anaconda`→**Miniforge**, browsers→**Flatpak**, candy/Sweet
+icons→**git clone of upstream**, weylus→**official GitHub release binary**, fastfetch→
+`extra` repo. The few items with no trustworthy non-AUR source (Sweet cursors,
+`claude-desktop`, a driver-pinned older CUDA) are **skipped + reported** unless you
+pass `--allow-aur`, which also shows each PKGBUILD for review. The caelestia shell
+stack stays AUR only because caelestia's *own* installer pulls it. See
+[Supply-chain security](../common/aur-supply-chain-2026-06.md).
 
 Both setup scripts are **idempotent**. After them: set `git config --global
 user.name`, then log out/in (fish shell + group changes need a fresh session).
@@ -82,18 +93,19 @@ user.name`, then log out/in (fish shell + group changes need a fresh session).
   Qt6 disk-benchmark GUI), `remote` (enable `sshd` + freerdp/remmina for RDP/VNC *out* +
   `wayvnc` as a VNC server *into* this Hyprland box — RDP-into-Wayland is
   unsupported, VNC is the working path), `tablet` (use an iPad/Android tablet as
-  a graphic tablet / touchscreen via **Weylus Community Edition** — the
-  prebuilt `weylus-community-bin`; upstream H-M-H/Weylus is dead and no longer
-  compiles on current rustc — plus the `uinput` group + udev rule + module
-  autoload so the daemon can inject pen/pointer events, and
-  `gst-plugin-pipewire` for the Hyprland portal screencast), `theme` (candy-icons + sweet-folders
-  from the AUR — the rainbow GTK icon set — AND a **system dconf lock** that pins
-  the icon theme so an upgrade / caelestia colour-scheme change can't revert it to
-  Papirus-Dark; variant via `ICON_THEME`, default Sweet-Purple. The two AUR
-  packages are the complete minimal set — all 12 colour variants ship inside the
-  one ~2 MiB `sweet-folders-icons-git`, so there's nothing extra to prune for
-  disk), `aurapps`, `groups`, `shell`.
-  CUDA is driver-matched.
+  a graphic tablet / touchscreen via **Weylus Community Edition** — the official
+  GitHub **release binary** (`weylus_linux.tar.gz` → `/usr/local/bin`, no AUR);
+  upstream H-M-H/Weylus is dead and no longer compiles on current rustc — plus the
+  `uinput` group + udev rule + module autoload so the daemon can inject pen/pointer
+  events, and `gst-plugin-pipewire` for the Hyprland portal screencast), `theme`
+  (candy-icons + Sweet-folders **cloned from the upstream EliverLara repos** — no
+  AUR — the rainbow GTK icon set, AND a **system dconf lock** that pins the icon
+  theme so an upgrade / caelestia colour-scheme change can't revert it to
+  Papirus-Dark; variant via `ICON_THEME`, default Sweet-Purple), `apps` (Brave +
+  Edge as **Flatpaks** from Flathub — no AUR; Sweet cursors + Claude Desktop are
+  AUR-only and skipped unless `--allow-aur`), `groups`, `shell`.
+  CUDA is driver-matched (repo first; a pinned older `cuda-<ver>` is AUR-only and
+  needs `--allow-aur`).
 - `uninstall.sh` — interactive, component-based **clean** uninstaller (the
   counterpart to `install.sh`): components `docker`, `vm` (remove the whole
   QEMU/KVM + libvirt + virt-manager stack and **delete all guest disk images in
@@ -162,6 +174,17 @@ user.name`, then log out/in (fish shell + group changes need a fresh session).
 
 ## Decisions & root causes worth remembering
 
+- **2026-06-17 — no-AUR-by-default after the June 2026 AUR compromise.** ~2000 AUR
+  packages were poisoned (infostealer + eBPF rootkit). This box was verified
+  unaffected (see [Supply-chain security](../common/aur-supply-chain-2026-06.md)),
+  but the install scripts were hardened so they **build nothing from the AUR by
+  default**. Repointed: `anaconda`→Miniforge (conda-forge), browsers→Flatpak,
+  candy/Sweet icons→git clone of upstream, weylus→GitHub release binary. The `aur()`
+  helper is gated behind a new `--allow-aur` flag (off by default); without it,
+  AUR-only items (Sweet cursors, `claude-desktop`, a driver-pinned CUDA) are skipped
+  and reported, and **no yay/paru is bootstrapped**. With it on, the helper shows
+  each PKGBUILD for review. The `aurapps` component was renamed `apps`. caelestia's
+  own AUR deps are out of scope (its installer pulls them, not ours).
 - **Connector is detected, not hardcoded.** First install used DP-2; this one
   is DP-1. `setup-home.sh` writes the desktop monitor file and `hdr-toggle`
   works off whatever the first non-eDP output is.

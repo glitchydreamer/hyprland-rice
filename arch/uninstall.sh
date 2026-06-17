@@ -42,7 +42,7 @@ COMPONENTS=(
     "vm|QEMU/KVM + libvirt + virt-manager + virt-viewer + OVMF/swTPM/guestfs, the default NAT net, ALL guest disk images in EVERY pool (default + custom pools on /home), /etc/libvirt, the nested-virt modprobe drop-in, and libvirt/kvm group membership (leaves your ISOs untouched)"
     "isaac|Isaac Sim container caches, the IsaacLab clone, the isaac-sim launcher, xorg-xauth"
     "ros2|The ros2-humble + moveit2-humble launchers + their Docker images + the shared Fast DDS UDP profile (also clears a leftover Jazzy image/launcher; images only if Docker is still present)"
-    "anaconda|Anaconda (AUR) + the conda fish init; leaves your project envs' data under ~/anaconda3 if external"
+    "anaconda|Miniforge (~/miniforge3) + the conda fish init (also removes a legacy AUR anaconda if present); leaves named envs under ~/.conda in place"
     "lerobot|Conda env 'lerobot' + the ~/lerobot clone the install created (override LEROBOT_DIR); set LEROBOT_KEEP_CLONE=1 to keep the clone. Anaconda itself stays."
     "uv|uv venv (~/.venv), build cache (~/.cache/uv) and uv-managed Pythons; keeps the pacman uv binary"
     "cuda|CUDA toolkit + cuDNN + the /etc/profile.d/cuda.sh PATH (leaves the NVIDIA driver alone)"
@@ -50,7 +50,8 @@ COMPONENTS=(
     "inputremap|input-remapper (AUR) + its daemon/service + ~/.config presets — no longer needed (the Razer mouse remaps via onboard memory)"
     "extras|Remove unused apps + their ~/.config/.cache/.state: Zed, Dolphin (using nautilus), Inkscape, Kate, HyprKCS"
     "fastfetch|Revert fastfetch to the OS ASCII logo, drop ~/.config/fastfetch/logo.sixel + any animated.* copy + fish_greeting animation hook (keeps the fastfetch-logo helper itself)"
-    "tablet|Weylus (any variant) + the uinput udev rule + module autoload + uinput group membership (~/.local/share/weylus access-codes too); leaves gst-plugin-pipewire alone (cheap, shared)"
+    "tablet|Weylus (the /usr/local/bin binary + any legacy AUR variant) + the uinput udev rule + module autoload + uinput group membership (~/.local/share/weylus access-codes too); leaves gst-plugin-pipewire alone (cheap, shared)"
+    "apps|Brave + Edge Flatpaks (com.brave.Browser, com.microsoft.Edge) + any opt-in AUR apps (Sweet cursors, Claude Desktop) if they were installed"
 )
 
 # ---- helpers ----------------------------------------------------------------
@@ -301,10 +302,14 @@ do_ros2() {
 }
 
 do_anaconda() {
-    say ">>> Anaconda"
+    say ">>> Miniforge / conda"
+    # New installs use Miniforge at ~/miniforge3 (no AUR); removing it takes the
+    # base env + any envs nested under it. A legacy box may still have the old AUR
+    # `anaconda` package (+ /opt/anaconda) — clean that too if present.
+    reclaim miniforge "$HOME/miniforge3"
     remove_pkgs anaconda-pkg anaconda
     reclaim anaconda-fish "$HOME/.config/fish/conf.d/conda.fish"
-    say "    · note: your conda ENVS/data (if under ~/anaconda3 or \$CONDA_PREFIX) are left in place."
+    say "    · note: named conda envs under ~/.conda/envs (if any) are left in place."
 }
 
 do_cuda() {
@@ -418,7 +423,7 @@ do_icons() {
     done
     say "    · icon theme restored to $default (Sweet/candy packages kept)."
     say "    · re-apply the Sweet icons:        bash setup-home.sh nautilus"
-    say "    · to also remove the packages:     paru -Rns candy-icons-git sweet-folders-icons-git"
+    say "    · to also remove the icon files:   sudo rm -rf /usr/share/icons/candy-icons /usr/share/icons/Sweet-*"
 }
 
 do_inputremap() {
@@ -490,9 +495,10 @@ do_fastfetch() {
 
 do_tablet() {
     say ">>> Weylus + uinput plumbing"
-    # Drop whichever weylus variant landed (install.sh uses weylus-community-bin,
-    # but if someone built from source via 'weylus' or pulled 'weylus-bin' we
-    # clean those too — they all conflict and only one can be present at a time).
+    # install.sh now drops the upstream release binary at /usr/local/bin/weylus
+    # (no AUR). Remove that first; then sweep any LEGACY AUR weylus variants a box
+    # might still carry (they all conflict — only one can be present at a time).
+    reclaim weylus-bin /usr/local/bin/weylus sudo
     remove_pkgs weylus-pkgs weylus-community-bin weylus-bin weylus weylus-git weylus-community-git
     # uinput artefacts the install component wrote.
     [ -f /etc/udev/rules.d/60-weylus-uinput.rules ] && \
@@ -525,6 +531,28 @@ do_tablet() {
     reclaim weylus-config "$HOME/.config/weylus"
     say "    · removed. gst-plugin-pipewire stays (other apps use it)."
     say "    · the group change needs a fresh login to take effect."
+}
+
+do_apps() {
+    say ">>> Browsers (Flatpak) + any opt-in AUR apps"
+    # install.sh installs Brave + Edge as Flatpaks (no AUR). Remove them if present.
+    if command -v flatpak >/dev/null 2>&1; then
+        local app
+        for app in com.brave.Browser com.microsoft.Edge; do
+            if flatpak info "$app" >/dev/null 2>&1; then
+                run "flatpak-$app" sudo flatpak uninstall -y "$app"
+            else
+                say "    · $app not installed — skip"
+            fi
+        done
+        say "    · reclaim unused Flatpak runtimes later with:  flatpak uninstall --unused"
+    else
+        say "    · flatpak not installed — no Flatpak browsers to remove."
+    fi
+    # The AUR-only apps are installed ONLY when you opt in with --allow-aur; clean
+    # them if they happen to be present (otherwise this is a no-op).
+    remove_pkgs apps-aur sweet-cursors-git sweet-cursors-hyprcursor-git \
+                brave-bin microsoft-edge-stable-bin claude-desktop-bin
 }
 
 # ---- arg parsing ------------------------------------------------------------
