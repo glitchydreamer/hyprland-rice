@@ -180,11 +180,33 @@ very differently:
 - **Icons** are easy and global. The GTK *icon theme* is one system-wide setting
   (`gsettings set org.gnome.desktop.interface icon-theme <name>`, mirrored into
   `~/.config/gtk-{3,4}.0/settings.ini`). Install an icon set (e.g. the rainbow
-  **candy-icons** from the AUR) and point that setting at it — nautilus and every
-  other **GTK** app pick it up. KDE/Qt apps (System Settings, Okular) have their
-  *own* icon setting, and caelestia's bar is QML, so neither is affected. On this
-  machine that's the `theme` component of `install.sh` (installs the icons) plus
-  the `nautilus` component of `setup-home.sh` (sets them).
+  **candy-icons**, cloned from upstream — no AUR) and point that setting at it —
+  nautilus and every other **GTK** app pick it up. KDE/Qt apps (System Settings,
+  Okular) have their *own* icon setting, and caelestia's bar is QML, so neither is
+  affected. On this machine that's the `theme` component of `install.sh` (installs
+  the icons + locks the dconf key) plus the `nautilus` component of `setup-home.sh`
+  (writes the `settings.ini` lines).
+
+    !!! warning "Under Hyprland, `settings.ini` is the load-bearing part — not dconf"
+        Two places hold the icon-theme name, and **which one GTK actually reads
+        depends on your session**:
+
+        - **`settings.ini`** (`gtk-icon-theme-name=…` in `~/.config/gtk-{3,4}.0/`)
+          — what `setup-home.sh nautilus` writes.
+        - **dconf/gsettings** (`org.gnome.desktop.interface icon-theme`) — what
+          `install.sh theme` *locks* at the system level.
+
+        On **GNOME**, the settings daemon feeds the dconf value to GTK, so the
+        **dconf lock** is what makes it stick. But under a bare Wayland WM like
+        **Hyprland there is no such daemon**, so **GTK4/libadwaita apps (nautilus)
+        read `settings.ini`** and ignore dconf entirely. Consequence: if the
+        `settings.ini` lines are missing, nautilus falls back to generic Adwaita
+        folders **even with the dconf lock enforced** — the lock is real but
+        nautilus never consults it. This is exactly how the icons "reset after a
+        reboot": a `~/.config` rebuild dropped the `settings.ini` lines and only
+        the dconf side had been re-applied. **Fix: `bash setup-home.sh nautilus`**
+        (re-writes `settings.ini`; nothing in caelestia rewrites that file, so it
+        persists). Run *both* components to cover GNOME and non-GNOME sessions.
 
     !!! tip "Icon *inheritance* — how folders and app icons combine"
         An icon theme can `Inherits=` others: a lookup falls through the chain until

@@ -151,6 +151,11 @@ pin_pipewire_dualsense() {
 # `gsettings set` (what setup-home does) can be overwritten again by whatever
 # re-asserts the default. We set a SYSTEM-level dconf default AND lock the key so
 # nothing in the user session can change it back. Idempotent. Variant via $1.
+# NOTE: the dconf lock is the GNOME-side belt. Under Hyprland (no GNOME settings
+# daemon) GTK4/libadwaita apps like nautilus read gtk-icon-theme-name from
+# ~/.config/gtk-{3,4}.0/settings.ini and IGNORE this dconf value — so on a non-GNOME
+# session `setup-home.sh nautilus` (which writes settings.ini) is what actually makes
+# nautilus show the theme. Run both.
 lock_icon_theme() {
     local variant="${1:-Sweet-Purple}"
     say "\n### Persist the icon theme (system dconf lock → $variant)"

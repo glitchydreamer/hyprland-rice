@@ -252,6 +252,14 @@ do_nautilus() {
         say "!!! icon theme '$variant' not installed — run 'bash install.sh theme' (candy-icons + sweet-folders) first."
         return
     fi
+    # The settings.ini lines are LOAD-BEARING under Hyprland: with no GNOME settings
+    # daemon, GTK4/libadwaita (nautilus) reads gtk-icon-theme-name from settings.ini
+    # and ignores the dconf/gsettings value. So if these lines go missing (e.g. a
+    # ~/.config rebuild), nautilus falls back to generic Adwaita folders even though
+    # install.sh's dconf lock is still enforced — the lock only matters under GNOME.
+    # caelestia writes gtk.css (libadwaita colours) but NOT settings.ini, so once
+    # written these persist across reboots. Run this AND `install.sh theme` to cover
+    # both non-GNOME (settings.ini) and GNOME (dconf lock) sessions.
     command -v gsettings >/dev/null && \
         gsettings set org.gnome.desktop.interface icon-theme "$variant" 2>/dev/null || true
     set_ini_key "$HOME/.config/gtk-3.0/settings.ini" gtk-icon-theme-name "$variant"
