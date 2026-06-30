@@ -7,6 +7,24 @@ the one for the build you're working on first** (the live box is CachyOS:
 `docs/common/`. The docs are a MkDocs site deployed to GitHub Pages by
 `.github/workflows/deploy-docs.yml` on push to `main`.
 
+## Portable agent memory (machine- & account-agnostic)
+
+The agent's persistent memory is the **canonical store `.agent-memory/` in this
+repo** (so it travels with `git clone`). Each machine's
+`~/.claude/projects/<key>/memory` is a **symlink** to it — memory reads/writes go
+through the repo and ride the normal commit+push, so a memory written on one box
+shows up on another after `git pull`.
+
+- **On a fresh machine / new clone, run once:** `bash scripts/agent-memory.sh link`
+  (it computes the per-machine project key from `$PWD`, migrates any existing
+  memory, and creates the symlink — works for any username/clone path). `status`
+  shows the wiring; `unlink` decouples. **An account switch on the same machine
+  needs nothing** — memory is keyed to the OS user + path, not the Claude account.
+- **Treat memory edits like code:** they land in `.agent-memory/` and are
+  committed + pushed by the same habit below — that is what syncs them across boxes.
+- The commit-identity email is deliberately kept OUT of the mirrored
+  `user-profile.md` (this repo is public); recover it via `git config user.email`.
+
 ## Working habits (do these by default — don't wait to be asked)
 
 - **Sync.** At the start of a session, `git fetch` and check status. After

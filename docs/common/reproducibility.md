@@ -104,6 +104,27 @@ hardware rather than hard-coding it:
 The [display setup page](../arch/display.md#why-a-symlink-and-a-script) explains the
 mechanism in full.
 
+## Portable agent context (the same idea, applied to the AI assistant)
+
+The repo is reproducible across machines; the assistant's *memory* should be too.
+Claude Code stores its memory outside the repo (under `~/.claude/...`, at a key
+derived from the checkout's absolute path), so a plain clone wouldn't carry it,
+and a different machine/username would compute a different, empty key.
+
+The fix mirrors the roaming-SSD trick — **detect, don't hard-code**:
+
+- The canonical memory store is **`.agent-memory/` inside the repo**, so it travels
+  with `git clone` and syncs through the normal commit+push.
+- `scripts/agent-memory.sh link` computes *this* machine's key from `$PWD` and
+  symlinks `~/.claude/...memory` to `.agent-memory/` — run once per new clone
+  (`status` shows the wiring, `unlink` decouples). An account switch on the same
+  machine needs nothing; memory is keyed to the OS user + path, not the account.
+- Behavioural context also travels independently via the tracked root `CLAUDE.md`
+  and the `project-context.md` pages.
+
+So a fresh PC is: `git clone … && bash scripts/agent-memory.sh link` → the
+assistant resumes with full memory, habits, and project knowledge.
+
 ## The standing habit
 
 The thread tying it together is a deliberate discipline (recorded in the
